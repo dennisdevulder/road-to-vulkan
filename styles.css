@@ -192,7 +192,7 @@ button { font-family: inherit; }
 .nav-item:hover { background: var(--panel-alt); }
 .nav-item.is-active {
   background: var(--panel-alt);
-  font-weight: 600;
+  color: var(--ink);
 }
 .nav-label { flex: 1; }
 .nav-label .soon {

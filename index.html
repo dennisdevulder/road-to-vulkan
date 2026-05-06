@@ -39,6 +39,10 @@
           <span class="check"></span>
           <span class="nav-label">The Kitchen: Vulkan's Objects, Mapped to Real Life</span>
         </button>
+        <button class="nav-item" data-topic="spinning-cube" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">The Spinning Cube: Building One End-to-End</span>
+        </button>
       </div>
 
     </nav>
@@ -256,6 +260,123 @@
           <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
           <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about queue families or fences, drill yourself on the kitchen analogy, or export a deck.</p>
           <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/43562bbc-d7f9-4a73-8b4c-23017839671c" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+    <!-- ───── TOPIC: THE SPINNING CUBE ───── -->
+    <article class="topic" data-topic-page="spinning-cube">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Topic 03</span>
+          <span>·</span>
+          <span>22 min listen</span>
+        </div>
+        <h1 class="topic-title">The Spinning Cube: Building One End-to-End</h1>
+        <p class="topic-subtitle">Eight vertices, 36 indices, eight lines of shader — and a seven-step heartbeat that never changes whether you're rendering a cube or a dragon.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="spinning-cube">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">If episode 1 was the math and episode 2 was the kitchen, this is the dish. Walking through every layer of plumbing needed to put a single rotating rainbow cube on screen — and noticing that the same architecture, unchanged, scales all the way to AAA games.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">NotebookLM podcast · 22:38</div>
+          <div class="podcast-title">The Spinning Cube</div>
+          <div class="podcast-desc">A NotebookLM-generated walkthrough of building a colored, rotating 3D cube in Vulkan from absolute scratch — geometry to shaders to the per-frame heartbeat to the gotchas that bite every developer at least once.</div>
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/3.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>The same loop, all the way up</h3>
+        <p>The spinning rainbow cube is the rite-of-passage demo, but it's not a toy. The plumbing required to put it on screen is the <em>exact</em> structural foundation of a photoreal AAA game. Once you can render a cube, the only thing standing between you and a dragon is more data — not more architecture.</p>
+
+        <h3>1. Geometry — eight vertices, 36 indices, an IKEA box</h3>
+        <p>A cube has eight corners — eight <strong>vertices</strong>, each at <code>±0.5</code> on x, y, z to keep it centered and one unit wide. The GPU doesn't draw squares, only triangles, so each face is two triangles → 12 triangles → 36 corners. Sending 36 vertices would be wasteful: most are duplicates of those 8 unique points, and a vertex isn't cheap (often 32+ bytes once you include color, normals, UVs).</p>
+        <p>The fix is the <strong>index buffer</strong>. Like an IKEA flat-pack: ship the four unique table legs once, plus a small instruction sheet that says <em>attach leg 0 here, leg 0 there, leg 1 here</em>. You store eight vertices in memory and a list of 36 small integers (2 or 4 bytes each) pointing back into them. The bigger win isn't memory — it's the GPU's <strong>post-transform vertex cache</strong>: when an index repeats, the GPU reuses the already-transformed result instead of running the vertex shader again. Free performance.</p>
+
+        <h3>2. Free gradients (the rasterizer earns its keep)</h3>
+        <p>Give each of the eight corners a different color. The faces don't render as solid blocks — they render as smooth gradients, no extra code. The <strong>rasterizer</strong>, fixed-function silicon on the GPU, automatically interpolates per-vertex attributes across every covered pixel. A red corner, a blue corner, and a green corner give you a perfectly blended triangle for free.</p>
+
+        <h3>3. Shaders — eight lines of logic, total</h3>
+        <p>You write tiny GPU programs in <strong>GLSL</strong>, then compile them to <strong>SPIR-V</strong> for Vulkan. For this cube you need exactly two:</p>
+        <ul>
+          <li><strong>Vertex shader (~6 lines)</strong> — multiply the incoming 3D position by the MVP matrix to land in clip space, pass the vertex color through to the next stage.</li>
+          <li><strong>Fragment shader (~2 lines)</strong> — receive the rasterizer-interpolated color, output it.</li>
+        </ul>
+        <p>That's the entire logic of a rotating, lit, gradient-shaded 3D cube. Every other line of code in the project is plumbing that <em>delivers data</em> to those eight lines.</p>
+
+        <h3>4. Buffers — three flavors of GPU memory</h3>
+        <p>The shaders are useless without data. Three buffers feed them:</p>
+        <ul>
+          <li><strong>Vertex buffer</strong> — the 8 unique corners (position + color).</li>
+          <li><strong>Index buffer</strong> — the 36-entry instruction sheet.</li>
+          <li><strong>Uniform buffer</strong> — the MVP matrix, refreshed every frame as the cube rotates.</li>
+        </ul>
+
+        <h3>The loading dock (staging buffers)</h3>
+        <p>The CPU and GPU have separate memory architectures, and the CPU can't write directly into the fastest GPU-only memory. So static data (vertex, index) goes through a <strong>staging buffer</strong>: at startup you fill a slow CPU-visible buffer, then the GPU forklifts it once into ultra-fast device-local memory. Slow once, blazing fast forever after.</p>
+
+        <h3>Why one uniform buffer per frame in flight</h3>
+        <p>The MVP matrix changes every frame, so you can't bury it behind a staging copy — you allocate the uniform buffer in CPU-visible memory and overwrite it directly each tick. But if there are two frames in flight (CPU recording frame N+1 while the GPU is still drawing frame N), one uniform buffer is a recipe for tearing: the CPU's new matrix would land in the same memory the GPU is mid-read. Solution: one uniform buffer per frame slot. They never step on each other's toes.</p>
+
+        <h3>5. Descriptor sets — layout, pool, set</h3>
+        <p>Shaders find their uniform buffers through <strong>descriptor sets</strong>. The restaurant analogy makes the three pieces obvious:</p>
+        <ul>
+          <li><strong>Descriptor set layout</strong> — the menu. The schema. <em>"Slot 0 will be a uniform buffer; slot 1 will be a texture."</em></li>
+          <li><strong>Descriptor pool</strong> — the kitchen. The big allocator that holds all raw ingredients.</li>
+          <li><strong>Descriptor set</strong> — the plated meal handed to the shader for one specific frame: <em>here's the exact uniform buffer you ordered, perfectly portioned.</em></li>
+        </ul>
+
+        <h3>6. The seven-step heartbeat (every Vulkan app, ever)</h3>
+        <p>An animation isn't a pile of data — it's a tightly orchestrated loop running 60 or 144 times a second. Internalize these seven steps and you've internalized every Vulkan render loop ever written:</p>
+        <ol>
+          <li><strong>Wait on a fence</strong> — make sure the GPU is done with this frame slot's resources from the last cycle. Don't paint on a wet canvas.</li>
+          <li><strong>Acquire the next swapchain image</strong> — get a clean canvas from the rotating stack.</li>
+          <li><strong>Update the uniform buffer</strong> — recompute the MVP matrix for this fraction of a second and write it.</li>
+          <li><strong>Reset and record the command buffer</strong> — begin render pass, bind the pipeline, bind the geometry, bind the descriptor set.</li>
+          <li><strong>Issue the draw call</strong> — <em>execute the instruction manual to draw 36 indices</em>.</li>
+          <li><strong>Submit to the graphics queue</strong> — gated by semaphores so the GPU doesn't draw before the canvas is ready.</li>
+          <li><strong>Present</strong> — gated by another semaphore so the swapchain doesn't push to the monitor before drawing finishes. Advance to the next frame slot, loop.</li>
+        </ol>
+
+        <h3>Fences vs semaphores, refined</h3>
+        <p>Two synchronization primitives, two distinct jobs. <strong>Fences</strong> are the assembly-line workers <em>yelling up to the manager's office</em> — strictly GPU→CPU. <strong>Semaphores</strong> are the workers <em>handing a clipboard to the next station on the line</em> — strictly GPU→GPU. Neither one is a substitute for the other.</p>
+
+        <h3>7. Survival tips — gotchas that bite everyone at least once</h3>
+        <ul>
+          <li><strong>The Y-axis flip.</strong> Most math libraries (GLM and friends) assume <code>+Y</code> is up; Vulkan's clip-space convention has <code>+Y</code> pointing <em>down</em>. Use the standard projection matrix as-is and your cube renders perfectly — upside down. Every tutorial mentions it; every developer forgets it at least once. Manually flip the Y term in your projection matrix.</li>
+          <li><strong>No depth testing → MC Escher cube.</strong> Without an explicit depth buffer, the GPU draws triangles in submission order with no concept of "in front." Back faces overwrite front faces and the inside of your cube ends up on the outside. Create a depth (Z) buffer — same dimensions as the framebuffer, storing distance instead of color. The GPU rejects any pixel further than what's already there.</li>
+          <li><strong>Window resize → hard crash.</strong> The swapchain reserves a specific block of GPU memory for a specific resolution. Drag the window edge and that block doesn't grow — Vulkan throws <code>VK_ERROR_OUT_OF_DATE_KHR</code> and your app dies. You have to catch it, pause the loop, destroy the swapchain, and recreate it at the new size.</li>
+          <li><strong>Validation layers are not optional.</strong> By default Vulkan prioritizes raw speed over safety. Forget to wait on a semaphore and you get a black screen with zero diagnostic information — just silent failure. Validation layers attach a strict auditor in development; mistakes turn into explicit human-readable messages. You cannot reasonably ship a Vulkan app without them.</li>
+        </ul>
+
+        <h3>The lingering thought</h3>
+        <p>The architecture you build for a spinning cube is the same architecture a AAA studio runs. Want textures? Pass one in through a descriptor set, add one line to the fragment shader. Want a million-vertex dragon? Same vertex and index buffers, just more data. The seven-step heartbeat never changes shape.</p>
+        <p>Which raises a question. If the core engine is essentially solved — if the only difference between a rainbow cube and a hyperreal sunset is volume of artistic data — then maybe the next bottleneck for graphics isn't writing better engines. It's how fast we can <em>generate</em> the ocean of geometry, textures, and animation that this loop is hungry for.</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about descriptor sets or the Y-flip, drill yourself on the seven-step loop, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/a0055271-6451-428c-b02f-0ddf96507fd4" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
         </div>
       </aside>
     </article>
