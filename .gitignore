@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor / tooling
+.vscode/
+.idea/
+.claude/
+
+# Audio source files — hosted on R2, not checked in
+podcasts/*.m4a
+podcasts/*.mp3
+
+# Whisper transcripts — working files, not part of the published site
+podcasts/*.txt
+
+# Stray index.html that lives inside podcasts/ for local browsing
+podcasts/index.html

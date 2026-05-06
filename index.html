@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Road to Vulkan — a learning log</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body data-theme="paper">
+
+<div class="layout">
+
+  <!-- ───── SIDEBAR ───── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="eyebrow">Learning log · public</div>
+      <h1 class="brand-title">Road to Vulkan</h1>
+      <div class="progress-text"><span id="progress-count">0</span> / <span id="progress-total">0</span> topics complete</div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+
+    <div class="search-wrap">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+      <input id="search" class="search" type="text" placeholder="Search topics…" />
+    </div>
+
+    <nav class="nav" id="nav">
+      <!-- ───── FOUNDATIONS ───── -->
+      <div class="nav-section">
+        <div class="nav-heading">Foundations</div>
+        <button class="nav-item" data-topic="geometry-of-light" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">The Geometry of Light: How GPUs Render Triangles</span>
+        </button>
+        <button class="nav-item" data-topic="vulkan-kitchen" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">The Kitchen: Vulkan's Objects, Mapped to Real Life</span>
+        </button>
+      </div>
+
+    </nav>
+
+    <div class="sidebar-footer">
+      Curated as I learn. Every topic ships with a NotebookLM podcast — ask questions, take the quiz, or pull flashcards directly inside NotebookLM.
+    </div>
+  </aside>
+
+  <!-- ───── MAIN ───── -->
+  <main class="main">
+
+    <!-- ───── TOPIC: GEOMETRY OF LIGHT ───── -->
+    <article class="topic" data-topic-page="geometry-of-light">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Topic 01</span>
+          <span>·</span>
+          <span>30 min listen</span>
+        </div>
+        <h1 class="topic-title">The Geometry of Light: Why Vulkan Asks for 900 Lines</h1>
+        <p class="topic-subtitle">Before any code — the four pillars that make every <code>VkStruct</code> stop feeling arbitrary.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="geometry-of-light">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">I sat down to render a spinning cube — a graphics-programmer rite of passage — and got slammed by 900 lines of Vulkan boilerplate before a single pixel lit up. So I parked the syntax and went looking for the blueprint underneath. This is what I found.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">NotebookLM podcast · 30:11</div>
+          <div class="podcast-title">The Geometry of Light</div>
+          <div class="podcast-desc">A NotebookLM-generated deep dive that takes my notes, the frustration with that 900-line Vulkan tutorial, and reverse-engineers the <em>why</em> behind every struct.</div>
+
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/1.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>The 900-line wall</h3>
+        <p>Modern Vulkan tutorials don't greet you with <code>drawCube()</code>. They open with <code>VkApplicationInfo</code>, <code>VkInstanceCreateInfo</code>, validation layers, physical device enumeration, queue families, swapchains — a complete wall of code, all of it before a pixel lights up. Older APIs hid the machine behind a friendly state machine; modern APIs expose the raw, unvarnished reality of the silicon. The tutorials hand you a wrench and a 900-page manual on how to tighten one bolt, but they never show you the engine.</p>
+        <p>What follows is that engine — described in terms of the four physical and mathematical realities every Vulkan struct ultimately maps back to.</p>
+
+        <h3>Pillar 1 — Geometry: why everything is a triangle</h3>
+        <p>Every landscape, every photoreal character, every spinning cube is, at the bottom, a list of triangles. Three vertices always define exactly one plane — there is zero topological ambiguity. A quad has one vertex too many: nudge it a fraction off and the GPU has to <em>interrogate</em> the shape to figure out which way the crease folds. Triangles remove that decision entirely, so the rasterizer never has to guess.</p>
+        <p>The "but isn't that twice as much data" worry is real, and it's solved by <strong>indexed drawing</strong>. Instead of sending six vertices for two triangles of a square face (with two duplicates), you send four unique vertices plus a small index buffer that says <em>draw a triangle from 0,1,2; then another from 0,2,3</em>. Mathematical certainty without the memory tax.</p>
+
+        <h3>Pillar 2 — Transformation: the five spaces a vertex lives in</h3>
+        <p>Raw coordinates in isolation mean nothing. A vertex at <code>(1, 1, 1)</code> could be the corner of a cube, the tip of a sword, or anywhere in a city. Before it can become a pixel, it has to travel through five coordinate systems:</p>
+        <ul>
+          <li><strong>Model space</strong> — the object's private universe, centered on its own origin.</li>
+          <li><strong>World space</strong> — the shared scene, where the cube sits next to the tree on the table.</li>
+          <li><strong>View space</strong> — the world rotated and translated so the camera sits at the origin, looking down z.</li>
+          <li><strong>Clip space</strong> — projected through the lens; out-of-frustum vertices are deleted here to save work.</li>
+          <li><strong>Screen space</strong> — the physical pixel grid of the monitor.</li>
+        </ul>
+
+        <h3>The W component (the trick that makes 3D work)</h3>
+        <p>A 3×3 matrix can scale and rotate a point but it cannot translate it. So computer graphics promotes every vertex from <code>(x, y, z)</code> to <code>(x, y, z, w)</code> — homogeneous coordinates — and uses 4×4 matrices throughout. Translation works cleanly when <code>w = 1</code>.</p>
+        <p>The projection matrix does something almost sneaky with <code>w</code>: it copies the vertex's z-depth into it. Then the hardware does a <strong>perspective divide</strong> — <code>x/w</code>, <code>y/w</code>, <code>z/w</code>. An object far away has a large <code>w</code>, so dividing pulls its <code>x,y</code> toward zero, shrinking it toward the center of the screen. That single division <em>is</em> perspective foreshortening.</p>
+
+        <h3>The MVP matrix</h3>
+        <p>The Model, View, and Projection matrices are pre-multiplied on the CPU into one 4×4 master — the <code>MVP</code> — and handed to the GPU. The GPU applies it to every vertex in parallel. To animate a spinning cube, the camera and projection don't move; you just rebuild the model matrix with a tiny extra rotation each frame, recompose <code>MVP</code>, and send. That is the entire essence of 3D animation.</p>
+
+        <h3>Pillar 3 — Hardware: why a CPU can't do this and a GPU can</h3>
+        <p>A CPU has 16–32 fast, complex cores designed for low-latency branching: operating systems, AI pathfinding, physics. Hand it 10 million vertices to multiply by a 4×4 matrix sixty times a second and the frame rate collapses. A GPU is the opposite trade-off: <em>thousands</em> of slower arithmetic units in a SIMD (single instruction, multiple data) layout. One instruction — <em>multiply this vertex by this matrix</em> — fans out across thousands of threads at once.</p>
+        <p>The pipeline that runs on top of that hardware has three programmable / fixed stages worth holding in your head:</p>
+        <ul>
+          <li><strong>Vertex shader</strong> — your tiny program, executed once per vertex in massive parallel. Its job: take a vertex, apply the MVP, output a clip-space position.</li>
+          <li><strong>Rasterizer</strong> — fixed-function hardware, no shader code. It scans each triangle's bounding box, decides which pixels lie inside via edge functions, and computes <strong>barycentric coordinates</strong> for each one. A pixel in the dead center of a triangle is 33% / 33% / 33% across its three vertices; near a corner, it's weighted toward that corner. Those weights interpolate every per-vertex attribute — color, UVs, normals — across the surface for free.</li>
+          <li><strong>Fragment shader</strong> — runs once per covered pixel. At 4K@60 that is ~500 million invocations per second. It receives the rasterizer's interpolated values, samples textures, evaluates lighting, and outputs a final color.</li>
+        </ul>
+
+        <h3>Pillar 4 — API philosophy: why Vulkan is verbose on purpose</h3>
+        <p>OpenGL felt easy because the driver was secretly doing the work. You'd bind a shader, change blending, hit draw — and behind the scenes NVIDIA's or AMD's driver was frantically intercepting every state change, recompiling shader microcode on the fly, guessing what hardware paths to route through. That hidden CPU-heavy babysitter is the source of frame stutter, vendor inconsistency, and unpredictable performance.</p>
+        <p>Vulkan deletes that babysitter. Switching blend modes can mean re-routing data through different physical silicon, so Vulkan refuses to do it on the fly. Instead, <code>VkGraphicsPipelineCreateInfo</code> forces you to bake the vertex shader, fragment shader, depth rules, and blend state into a single immutable <strong>VkPipeline</strong> object — you are pre-programming the physical pathways of the GPU. At draw time the driver does zero guesswork.</p>
+        <p>Same logic for the rest of the noise:</p>
+        <ul>
+          <li><strong>Render passes</strong> — a contract describing which color/depth attachments exist, how they're loaded at the start, used by subpasses, and stored at the end. Tile-based GPUs (mobile, Apple Silicon) use it to keep data in on-chip cache as long as possible before flushing to RAM.</li>
+          <li><strong>Memory management</strong> — you query the device for memory heaps, find one that's <code>DEVICE_LOCAL</code> (sits on VRAM), allocate a big block, and sub-allocate buffers and textures yourself.</li>
+          <li><strong>Synchronization</strong> — CPU and GPU run asynchronously. <code>VkSemaphore</code>s and <code>VkFence</code>s are how you guarantee the GPU is done reading a buffer before the CPU writes to it for the next frame.</li>
+          <li><strong>Validation layers</strong> — the core API does zero error checking at runtime to save cycles. You opt into validation in development to intercept your commands and warn you before you crash the GPU.</li>
+        </ul>
+        <p>OpenGL is an automatic transmission. Vulkan is a manual transmission with the dashboard ripped off and direct control of the fuel injectors and spark plugs. The pain is the price of predictable performance at the bleeding edge.</p>
+
+        <h3>The lingering thought</h3>
+        <p>The cognitive load on a graphics programmer has never been higher. As scenes get more complex — path-traced photorealism, neural rendering, metaverse-scale simulations — the plumbing keeps getting denser. Maybe the eventual destiny of an explicit API like Vulkan isn't humans writing it at all: a human directs the high-level art, lighting math, and spatial logic; an AI compiler emits the 900 lines of memory allocation and synchronization underneath, optimizing SIMD pathways in a way no human ever could. Until then — we navigate the plumbing ourselves.</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about the perspective divide, drill yourself on the five spaces, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/80029389-fa25-4ca7-83a6-2ec2f6ab8fe3" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+    <!-- ───── TOPIC: THE KITCHEN ───── -->
+    <article class="topic" data-topic-page="vulkan-kitchen">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Topic 02</span>
+          <span>·</span>
+          <span>22 min listen</span>
+        </div>
+        <h1 class="topic-title">The Kitchen: Vulkan's Objects, Mapped to Real Life</h1>
+        <p class="topic-subtitle">Fifteen intimidating vocabulary words become twelve obvious steps in a restaurant — once you stop thinking of <code>draw()</code> as handing someone a marker.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="vulkan-kitchen">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">If episode 1 was the math underneath Vulkan, this one is the <em>furniture</em>. Every dense Vulkan term — <code>VkInstance</code>, <code>VkDevice</code>, <code>VkSwapchainKHR</code>, command buffers, fences — maps to a physical step in opening and running a high-end restaurant kitchen. Once the analogy clicks, the API stops looking arbitrary.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">NotebookLM podcast · 22:03</div>
+          <div class="podcast-title">The Kitchen Analogy</div>
+          <div class="podcast-desc">A NotebookLM-generated walkthrough of Vulkan's object model, from <code>VkInstance</code> to VMA, told as the story of opening a restaurant kitchen.</div>
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/2.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>Stop thinking <code>draw()</code> hands a marker to a computer</h3>
+        <p>The naive expectation is <em>draw a triangle, fill it red, move on</em>. Vulkan demolishes that. It's like being asked to sign a lease, hire a management team, build a supply chain, and define the chemical composition of the ink before you're allowed to touch the whiteboard. That's why a "hello triangle" tutorial costs you a thousand lines of code.</p>
+        <p>The way through is to swap analogies. Vulkan is not a marker. Vulkan is a <strong>restaurant kitchen</strong>. Every term in the API is a physical step required to get a plate of food out to a customer.</p>
+
+        <h3>1. <code>VkInstance</code> — registering the business</h3>
+        <p>Creating an instance is going down to City Hall and registering your restaurant. You introduce your application by name and version, declare which Vulkan extensions you'll need ("I'd like to draw to a window, please"), and shake hands with the Vulkan loader on the machine. One per application. First thing created, last thing destroyed.</p>
+
+        <h3>2. Physical device — the building</h3>
+        <p>The instance lets you query the world for <strong>physical devices</strong> — actual GPU silicon. A laptop might have two: an integrated chip for browsing, a discrete card for gaming. Vulkan refuses to guess which one you want. You enumerate them, inspect their capabilities, and pick the building you want to put your kitchen inside.</p>
+
+        <h3>3. Logical device — signing the lease</h3>
+        <p>The physical device is read-only — you can't change the silicon. The <strong>logical device</strong> is your specific, configurable session with that hardware. The reason this split exists is <em>multi-tenancy</em>: a game, a browser, and Discord can all run at once, each with its own logical device, all pointing at the same physical GPU. You query the physical world; you configure and destroy the logical session.</p>
+
+        <h3>4. Queues &amp; queue families — the prep stations</h3>
+        <p>Old APIs treated the GPU as one giant single-file line. Modern GPUs have billions of transistors — making a complex math job wait behind a simple pixel job is a colossal waste. Vulkan exposes specialized parallel lanes:</p>
+        <ul>
+          <li><strong>Graphics queue</strong> — drawing geometry.</li>
+          <li><strong>Compute queue</strong> — heavy general-purpose math.</li>
+          <li><strong>Transfer queue</strong> — copying big chunks of memory around.</li>
+          <li><strong>Presentation queue</strong> — actually putting images on the screen.</li>
+        </ul>
+        <p>When you sign the lease (create the logical device), you must declare the prep stations you intend to use. Even if a beginner tutorial just grabs one graphics queue, the system forces you to acknowledge the kitchen has distinct parallel stations. Nothing happens by accident in this environment.</p>
+
+        <h3>5. Surface — the window to the dining room</h3>
+        <p>Vulkan's universe is mathematically pure. Your operating system is chaos: window managers, taskbars, focus rules. The <strong>surface</strong> is the bridge between them — and it's the <em>only</em> platform-specific part of the entire API. There's a different extension for Windows (<code>VK_KHR_win32_surface</code>), macOS, Linux. Once the surface is created, every other call is OS-agnostic. Vulkan stops caring; it just sees a void it's allowed to push pixels into.</p>
+
+        <h3>6. Swapchain — rotating plates</h3>
+        <p>If you draw straight to the visible image while the monitor is mid-refresh, you get <strong>tearing</strong> — the top half of the screen shows the old frame, the bottom half shows the new one. Spin the camera in a shooter and the wall looks sliced in half.</p>
+        <p>The <strong>swapchain</strong> is a rotating set of two or three images. The chef plates onto plate #1, the waiter carries plate #2 to the table, plate #3 is in the dishwasher. Swap them out behind the scenes; the user only ever sees a finished frame.</p>
+
+        <h3>7. Command pools &amp; command buffers — order tickets</h3>
+        <p>Vulkan is a <strong>recording API</strong>, not an immediate-mode one. You never tell the GPU <em>draw a triangle right now</em>. The waiter doesn't walk in and grill the burger themselves — they write a ticket: <em>two burgers, medium-rare, hold the onions, side of fries</em>. That ticket is a <strong>command buffer</strong>.</p>
+        <p>Tickets come from a <strong>command pool</strong>, and you have one pool per CPU thread. That means many waiters can write tickets in parallel — a superpower the old single-thread bottleneck never had.</p>
+
+        <h3>8. The pipeline — the frozen recipe</h3>
+        <p>This is the most uniquely Vulkan concept of all. A <strong>pipeline</strong> is every piece of state needed to perform a draw call — vertex shader, fragment shader, vertex layout, blend state, depth test, stencil — baked into one immutable object at startup.</p>
+        <p>Why freeze it? In OpenGL, developers flipped switches all frame: <em>turn on blending, draw water, turn off blending, draw rock</em>. Easy for the developer, but every flip forced the driver on the CPU to pause and re-validate the whole state combination. Vulkan validates the pipeline <em>once</em>; switching pipelines at runtime is virtually free. The chef doesn't stop and wonder how to make the dish — they execute a pre-validated recipe blindly.</p>
+
+        <h3>9. Render passes (and the 1.3 shortcut)</h3>
+        <p>A <strong>render pass</strong> historically described which images the draw call writes into, whether to clear them at the start, what to do with them at the end. Useful metadata, but a pile of paperwork. Vulkan 1.3 added <strong>dynamic rendering</strong>, which skips most of that boilerplate. The community's pro tip for anyone learning today: use dynamic rendering — it saves hundreds of lines.</p>
+
+        <h3>10. Synchronization — semaphores &amp; fences</h3>
+        <p>The CPU and GPU run independently. Without explicit timing, the GPU can try to draw a frame the monitor is still displaying, or the CPU can overwrite an order ticket the chef hasn't read yet. Two primitives keep the chaos in check:</p>
+        <ul>
+          <li><strong>Semaphores</strong> — GPU-to-GPU signals. They live entirely on the graphics card. Example: <em>don't present this image to the screen until rendering is finished</em>.</li>
+          <li><strong>Fences</strong> — GPU-to-CPU signals. Tiny flags in system memory. The CPU watches the flag; when the GPU flips it, the CPU knows the frame is done and it's safe to record the next ticket.</li>
+        </ul>
+        <p>This is what enables <strong>frames in flight</strong> — typically two. The CPU records the commands for frame N+1 while the GPU is still drawing frame N. They overlap, neither sits idle. Each frame in flight needs its own command buffer, its own fence, and its own semaphores.</p>
+
+        <h3>11. Buffers &amp; memory — the pantry</h3>
+        <p>A <strong>buffer</strong> is a reserved chunk of GPU memory — vertex positions, indices, uniforms (like the MVP matrix from episode 1). You allocate it, fill it, bind it before you draw. <strong>Uniform buffers</strong> hold per-frame data the shader reads — typically the camera transforms.</p>
+        <p>Vulkan exposes the <em>entire</em> memory hierarchy: GPU-only memory, CPU-visible memory, host-coherent memory. Doing it manually means querying the hardware for memory types, allocating large blocks, sub-allocating tiny chunks per resource, binding them one by one. It's tedious and error-prone, and the unanimous community pro tip is <strong>do not write your own allocator</strong> — drop in the <a href="https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator" target="_blank" rel="noreferrer">Vulkan Memory Allocator (VMA)</a> on day one. AMD wrote it, everyone uses it. It's the one place in Vulkan where the community agrees to let a tool handle the magic.</p>
+
+        <h3>The whole kitchen, in one breath</h3>
+        <p>The application says hi to the system and registers the business — the <strong>instance</strong>. It looks at the hardware and picks a building — the <strong>physical device</strong>. It signs the lease and opens its session — the <strong>logical device</strong>. It declares the parallel prep stations — the <strong>queues</strong>. It builds a window to the OS — the <strong>surface</strong>. It gets a stack of rotating plates so the user never sees tearing — the <strong>swapchain</strong>. It hands its multi-threaded waiters pads of paper — <strong>command pools</strong> — so they can write order tickets — <strong>command buffers</strong>. The chefs follow a strictly frozen, driver-validated recipe — the <strong>pipeline</strong>. Chaos is contained with <strong>semaphores</strong> (GPU↔GPU) and <strong>fences</strong> (GPU↔CPU). And every raw ingredient lives in the pantry — <strong>buffers</strong>, ideally allocated by VMA.</p>
+
+        <h3>The lingering thought</h3>
+        <p>Vulkan's extreme verbosity is a philosophy: forcing every rule, state, and dependency to be explicit up front eliminates bottlenecks at runtime. It strips the illusions and makes you understand the machine you're commanding instead of trusting a driver to guess. Worth asking: where else in our digital lives — or in our day-to-day organisations — are we relying on hidden magic, unwritten rules, black-box systems we should probably rip out and manage explicitly, even if it costs us a much bigger vocabulary to do it?</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about queue families or fences, drill yourself on the kitchen analogy, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/43562bbc-d7f9-4a73-8b4c-23017839671c" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+  </main>
+
+  <!-- ───── THEME PICKER (bottom right) ───── -->
+  <div class="theme-picker">
+    <button class="theme-swatch" data-theme="paper" title="Paper" style="background:#f6f3ec"></button>
+    <button class="theme-swatch" data-theme="ide"   title="IDE Dark" style="background:#0f1115"></button>
+    <button class="theme-swatch" data-theme="spec"  title="Spec" style="background:#ffffff"></button>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
