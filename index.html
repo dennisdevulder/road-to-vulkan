@@ -45,6 +45,23 @@
         </button>
       </div>
 
+      <!-- ───── PLUGIN ECOSYSTEM ───── -->
+      <div class="nav-section">
+        <div class="nav-heading">Plugin Ecosystem</div>
+        <button class="nav-item" data-topic="plugin-how-it-works" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">How the Vulkan Plugin Actually Works</span>
+        </button>
+        <button class="nav-item" data-topic="plugin-deep-dive" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">The Deep Dive: Down to the Bytes</span>
+        </button>
+        <button class="nav-item" data-topic="plugin-handover" data-status="ready">
+          <span class="check"></span>
+          <span class="nav-label">The Handover: A Guided Tour of the Source</span>
+        </button>
+      </div>
+
     </nav>
 
     <div class="sidebar-footer">
@@ -377,6 +394,338 @@
           <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
           <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about descriptor sets or the Y-flip, drill yourself on the seven-step loop, or export a deck.</p>
           <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/a0055271-6451-428c-b02f-0ddf96507fd4" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+    <!-- ───── TOPIC: HOW THE VULKAN PLUGIN WORKS ───── -->
+    <article class="topic" data-topic-page="plugin-how-it-works">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Plugin · 01</span>
+          <span>·</span>
+          <span>28 min listen</span>
+        </div>
+        <h1 class="topic-title">How the Vulkan Plugin Actually Works</h1>
+        <p class="topic-subtitle">What problem the plugin solves, how Vulkan reshapes the old OpenGL path, and why macOS is the hard one — the shape of the thing, no method names.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="plugin-how-it-works">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">A second GPU plugin for an old MMO that already has one — built on Vulkan instead of OpenGL. This is the conversational map: what a GPU plugin does, why "explicit" is the whole story, how OSRS geometry becomes triangles, and where the Mac-only bugs live.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">Podcast · two voices · ~28 min</div>
+          <div class="podcast-title">How the Vulkan Plugin Actually Works</div>
+          <div class="podcast-desc">HOST is the curious learner; DEV built the plugin. No argument types, no class names — just the shape of the thing and the order things happen in.</div>
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/5.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>Why a second GPU plugin?</h3>
+        <p>Nothing was broken. The existing plugin works great — but it's built on OpenGL, and OpenGL is a museum piece now. Apple deprecated it years ago; the future on every platform is Vulkan, Metal, or DirectX 12. This is a bet: rebuild the renderer on Vulkan, the modern, explicit, cross-platform API, and learn what that actually takes. <strong>Explicit</strong> is the word that runs through everything.</p>
+
+        <h3>What a GPU plugin does</h3>
+        <p>The game can draw itself on the CPU — software rendering, pixel by pixel — but it's slow and caps out. A GPU plugin intercepts that. The engine hands us a description of the world ("a tree model at this tile, terrain here, a goblin facing this way") and <em>we</em> hand it to the graphics card. The plugin is a translator: game says "tree here," plugin says "GPU, draw these triangles." Both old and new plugins do exactly this — same input, same output, wildly different machinery in the middle.</p>
+
+        <h3>OpenGL is a waiter; Vulkan is a kitchen you run yourself</h3>
+        <p>OpenGL is a restaurant with a waiter — the driver. You set a state ("blending is on now") and it stays on until you change it. A big mutable machine that <em>remembers</em>. Vulkan hands you the kitchen keys: nothing is remembered for you. Before the game starts you pre-build frozen recipe cards for every settings combination — <strong>pipelines</strong>. At draw time you don't set state, you slap down the right card. More work upfront, but it kills the whole "I left a toggle on three draws ago" category of bug.</p>
+
+        <h3>The three faces of "explicit"</h3>
+        <ul>
+          <li><strong>Explicit state</strong> — pipelines. Bind the card, get exactly that behavior, nothing leaks in from before.</li>
+          <li><strong>Explicit commands</strong> — you <em>record</em> a list in a <strong>command buffer</strong> (a notebook): bind the terrain recipe, draw these zones, switch to the UI recipe. Write the whole to-do list, then hand the notebook to the GPU in one go. The GPU sees the whole plan and schedules it intelligently. Re-recorded every frame.</li>
+          <li><strong>Explicit timing</strong> — the part that bites everyone.</li>
+        </ul>
+
+        <h3>Explicit timing: fences and semaphores</h3>
+        <p>The CPU writes the notebook; the GPU reads it — at the same time, on different chips. We keep about three frames "in flight." The trap: frame six wants to write new tree positions into a buffer the GPU is still reading for frame five. Overwrite mid-draw and you get garbage, flicker, crashes. Two signals fix it:</p>
+        <ul>
+          <li><strong>Fence</strong> — GPU tells the <em>CPU</em> "I've finished this batch, reuse its memory." The leash that stops the CPU running too far ahead.</li>
+          <li><strong>Semaphore</strong> — GPU tells <em>itself</em> "step A done, step B can start." Pure GPU-to-GPU ordering; the CPU never sees it.</li>
+        </ul>
+        <p>Fence: GPU→CPU. Semaphore: GPU→GPU. In OpenGL the driver did all this invisibly, with guesses. Vulkan strips the guessing out and makes you say it — more rope, more control, more ways to hang yourself.</p>
+
+        <h3>OSRS geometry becomes triangles</h3>
+        <p>The engine hands us scene and camera. We walk the world — a 104×104 tile grid — and pull each thing's raw geometry: points in space, triangles connecting them, colors. Each point packs into a tiny <strong>20-byte nugget</strong> (position, color, texture coordinate), streamed into a big buffer. Smaller vertex → more fit in cache → faster the GPU chews through them, and there are a <em>lot</em> per frame.</p>
+
+        <h3>Transparency: the hard part</h3>
+        <p>Opaque stuff is easy — the depth test keeps whatever's closest. See-through things (water, fire) must be blended back-to-front, in order, or the blending is visibly wrong. So a dedicated piece sorts a model's faces by distance before emitting. The game adds a wrinkle: faces carry a "priority" tag, the engine's hand-tuned hint ("this cape part draws over the body even if the math disagrees"), and the sorter respects it — it's matching the original game's look, not textbook depth sorting. Shortcut: a fully-solid small model skips sorting entirely.</p>
+
+        <h3>Draw the world, then paste the UI on top</h3>
+        <p>Record the notebook: bind the terrain recipe, set camera math and fog, then go layer by layer, plane by plane — terrain, walls, objects — drawing only zones close enough to be visible. Beyond fog distance, we simply never mention it (cheapest culling there is). Roofs vanishing indoors is handled right in the draw list: we know which stretch of buffer is the roof and draw <em>around</em> it — up to it, skip it, resume. The interface is blunt: the game already drew the 2D UI into a block of pixels; we upload that block as one image and stretch it across the screen as a flat transparent layer on top. Scene first, then one UI sheet. Submit, signal, present.</p>
+
+        <h3>The two shaders</h3>
+        <p>Two little programs that run on the GPU. The <strong>vertex</strong> shader runs per point: multiply raw position by the camera matrix to find where on screen it lands, work out fog from distance. The <strong>fragment</strong> shader runs per pixel: figure the final color (model's own or a sampled texture), blend in fog, optionally apply color-blindness correction, output a pixel. Same tiny program, run across thousands of cores in parallel — "write the recipe for <em>one</em>, the hardware does <em>all</em>." That's the GPU in a sentence.</p>
+
+        <h3>Getting a window to draw into</h3>
+        <p>The GPU needs a <strong>surface</strong> — a real region of a real OS window. The game's window belongs to Java's old toolkit, AWT, so step one is always: reach through Java, grab the native handle, wrap it in something Vulkan recognizes. The bridge is the same everywhere; the handle differs.</p>
+        <ul>
+          <li><strong>Windows</strong> — ask Java for the HWND, wrap it in the Windows-flavored surface. Two steps.</li>
+          <li><strong>Linux</strong> — grab a display connection and drawable, wrap those. Even on Wayland, Java presents itself as X11, so one path covers both.</li>
+          <li><strong>macOS</strong> — its own segment.</li>
+        </ul>
+
+        <h3>macOS: Vulkan that isn't Vulkan</h3>
+        <p>Apple doesn't support Vulkan at all — they have Metal. So a Vulkan plugin runs on a Mac through <strong>MoltenVK</strong>, a translation layer that rewrites every Vulkan call into Metal underneath. One codebase runs everywhere; macOS pays a translation tax. Worse, the translator has its own personality — bugs that don't exist on Linux show up on Mac. The flicker bug is exactly this: same source, flawless on Linux, flickers on Mac, because the bug isn't in <em>our</em> Vulkan, it's in how the translator hands finished frames to the Mac's compositor.</p>
+        <p>And macOS needs extra setup just for a surface. Metal needs a <strong>CAMetalLayer</strong>, which can't be created from Java — it's an Apple system object. So a small chunk of native Objective-C reaches into the Java window, mints a fresh Metal layer, and staples it into the layer stack. Windows and Linux "borrow the existing handle"; macOS "manufactures the handle in a different language." There's a constant babysitting cost too — on resize the Metal layer doesn't follow automatically, so that native code runs a heartbeat tied to display refresh to keep its size in sync. macOS is easily half the platform complexity of the whole plugin.</p>
+
+        <h3>The abstraction layer, and why it exists</h3>
+        <p>Raw Vulkan is brutally verbose — creating one frozen recipe card means filling out a dozen forms (rasterize, blend, depth-test…). Do that inline every time and the rendering logic drowns. So a thin layer wraps the ceremony behind sane builders, modeled after <strong>WebGPU</strong>. The win is readability <em>and</em> a clean seam: platform plumbing (instance, device, swapchain, surface) on one side, "what to draw" logic on the other as plug-in extensions. The stock scene renderer is just <em>one</em> extension; someone could add an HD lighting renderer without touching the plumbing. The bonus features ride that seam too — FSR upscaling (render at 75%, upscale back to sharp), a live debug overlay, per-layer wireframe, more anti-aliasing and texture knobs.</p>
+
+        <h3>The whole thing in five sentences</h3>
+        <ol>
+          <li>The plugin turns the game's "here's the world" into triangles the graphics card draws.</li>
+          <li>Vulkan makes you say <em>everything</em> out loud that OpenGL guessed — frozen pipelines instead of mutable state, a recorded command list instead of barked orders, explicit fences and semaphores instead of trusting the driver to wait.</li>
+          <li>Each frame: capture geometry, sort the see-through stuff back-to-front, record the draw list zone by zone, paste the UI on top, submit, present — three frames pipelining through three slots so neither chip stalls.</li>
+          <li>To draw anywhere, borrow the OS window's native handle and wrap it as a surface — trivial on Windows and Linux, and on macOS manufacture a Metal layer in native code and run it through MoltenVK.</li>
+          <li>That translator is the price of one codebase running everywhere, and it's exactly where the Mac-only bugs live.</li>
+        </ol>
+        <p><strong>Where to start reading:</strong> the frame loop — wait on a fence, record the list, submit, present. That's the spine; everything hangs off it. Then geometry capture into the buffer, then the sorter, then surface and swapchain, and save the macOS native layer for last. Don't read the Vulkan setup top to bottom — start where the per-frame action is and pull the threads from there.</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about pipelines vs. mutable state, drill yourself on fences vs. semaphores, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/7989b510-841d-4a0c-b69c-1585f524724d" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+    <!-- ───── TOPIC: THE DEEP DIVE ───── -->
+    <article class="topic" data-topic-page="plugin-deep-dive">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Plugin · 02</span>
+          <span>·</span>
+          <span>38 min listen</span>
+        </div>
+        <h1 class="topic-title">The Deep Dive: Down to the Bytes</h1>
+        <p class="topic-subtitle">For someone who finished episode one and wants to open the source without drowning — the 20-byte vertex, reverse-Z, the bucket sorter, push constants, and the genuinely cursed platform landmines.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="plugin-deep-dive">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">The map said "capture geometry into a buffer." The territory is: one vertex is exactly twenty bytes in a very specific order, and one wrong byte turns the world inside out. Every concrete detail comes with the <em>why</em> — a junior remembers the reason, not the number.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">Podcast · two voices · ~38 min</div>
+          <div class="podcast-title">The Deep Dive</div>
+          <div class="podcast-desc">Down to the bytes, the sync primitives, the sort algorithm, and the cursed platform bugs — still taught, not dumped.</div>
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/6.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>What one vertex actually is — twenty bytes</h3>
+        <p>Every point of every model becomes a twenty-byte record, in three chunks. First <strong>8 bytes</strong>: position — x, y, z as signed 16-bit shorts plus two bytes padding. Why shorts? The world's coordinates are integers already (tiles are 128 units, everything snaps to a grid); a short holds ±32,000, half the size of a float. Next <strong>4 bytes</strong>: color and flags packed into one 32-bit integer. Last <strong>8 bytes</strong>: texture coordinates and which texture. The rule running through the whole codebase: the smaller each vertex, the more fit in cache, the faster the GPU chews through hundreds of thousands per frame.</p>
+
+        <h3>The packed color integer — HSL, not RGB</h3>
+        <p>The game stores color as <strong>HSL</strong> crammed into 16 bits — 6 bits hue, 3 saturation, 7 lightness — because it's a 2003 engine and that reproduces the original faceted, slightly-banded look. The shader converts HSL→RGB on the GPU, ported line-for-line from the original client. That middle integer: low 16 bits are HSL, next byte is a depth "bias," top byte is transparency. Three values in one int via shifts and masks; the shader pulls them back with mirror-image shifts. The UVs in the last chunk are shorts ×256 so fractions survive, plus a texture layer number — layer 0 means "no texture, just color."</p>
+
+        <h3>One giant buffer, sliced</h3>
+        <p>One big buffer, deliberately carved. The front is the <strong>static arena</strong> — terrain, walls, scenery — written once when a region loads. The rest is three <strong>dynamic arenas</strong>, one per frame-in-flight, each frame scribbling its moving stuff (players, NPCs) into its own slice. The three slices exist because of the exact race: the CPU writes frame six's monsters while the GPU reads frame four's. Give each in-flight frame its own slice and they physically cannot collide. Static-once, dynamic-times-three — the memory-layout expression of "three frames in flight."</p>
+
+        <h3>Reverse-Z: the depth buffer is upside down on purpose</h3>
+        <p>The clear value for depth is <em>zero</em>, not one — which looks like a bug. Normal depth: near=0, far=1, clear to 1, keep whatever's <em>less</em>. This codebase flips it: far=0, near=1, clear to 0, keep whatever's <em>greater</em>. Why? Floats have tons of precision near zero and little far out. In normal depth that precision bunches at the near plane where you don't need it and distant objects z-fight. Flip it and the dense precision lands where distant geometry is — z-fighting basically vanishes. Nearly free, strictly better. The "bias" byte touches depth too: divided down to a small number and added to z in the vertex shader, a per-vertex nudge so decals draw on top of what they sit on.</p>
+
+        <h3>The sorter, for real</h3>
+        <p>Not "sort back to front" — a <strong>bucket sort by depth</strong>, ported verbatim from the original client's face-priority sorter, copyright preserved, because matching the game matters more than cleverness. Per model: project every vertex; for each triangle do a <strong>back-face cull</strong> (cross-product of the three on-screen corners — facing away? throw it out, roughly half of any solid object, free). Survivors drop into buckets by depth (a linked list per distance value out to the model's diameter), then walk buckets farthest-to-nearest. Counting sort, not n-log-n.</p>
+        <ul>
+          <li><strong>The stamp trick</strong> — clearing the reused bucket arrays thousands of times a frame is wasteful, so a counter ticks up per model and each bucket records "the last stamp that touched me." Stale unless the stamp matches the current model. Never clear; just bump a number. One real clear when the counter wraps. Lazy invalidation.</li>
+          <li><strong>Priority faces</strong> — the cape-over-body problem. Faces tagged 0–11 override pure depth. The sorter reproduces the original's exact interleaving (you'll see variables for the average of priorities 1&2, 3&4, 6&8). Not pretty; the comment says "this matches the client, do not make it elegant." Fidelity beats elegance.</li>
+          <li><strong>Two outs</strong> — opaque-and-small models skip bucketing (cull-only path); any vertex closer than z=50 rejects the whole model (near-plane clip, the original's magic number).</li>
+        </ul>
+
+        <h3>Push constants: the tiny mailbox to the shaders</h3>
+        <p>The fastest way to get a small amount of data to a shader — a couple hundred bytes stuffed right into the command buffer, no buffer, no descriptor, no allocation. Laid out by byte offset that code and shader must agree on exactly. First 64 bytes: the camera matrix. Then fog params (camera position, draw distance). Then misc ints (the current tick, for animating textures). Further along, the fragment shader's chunk: fog color and brightness. The favorite dirty trick: <strong>one float carries two values</strong> — it holds the smooth-banding setting (0–1) but also encodes the transparency pass by adding 10 or 20 on top. The shader integer-divides by ten to recover the pass, subtracts it back to recover the banding. Push-constant space is hard-limited (sometimes 128 bytes guaranteed), so you pack.</p>
+
+        <h3>Inside the fragment shader</h3>
+        <p>Runs once per pixel. First, discards: an "invisible" sentinel (transparency == 255) discards immediately; then, by transparency pass, discard either see-through or solid pixels so each pass handles its own kind. Then color, two branches: no texture → produce from HSL (smooth or sharp per-pixel decode by the banding setting); texture → sample the big array by UV and layer, throw away near-transparent pixels (that's how tree leaves get ragged edges instead of square cards), tint by the face's lightness. Three finishing moves <em>in order</em>: brightness (gamma power), fog (blend toward fog color), then color-blindness correction (matrix Daltonization) <em>after</em> fog so the fog gets corrected too. Out comes the pixel with alpha = 1 − transparency.</p>
+
+        <h3>Alpha-to-coverage</h3>
+        <p>Instead of true blending for every see-through face, the anti-aliasing hardware turns that alpha into a <em>number of sub-pixel samples</em> it lights up — half-transparent means roughly half the samples drawn. From normal viewing distance it reads as transparency, and you skip a whole expensive sorted blend pass. A cheap approximation that looks right.</p>
+
+        <h3>Fences and semaphores, concretely</h3>
+        <p>Three kinds of sync object, and the <em>counts</em> tell the story:</p>
+        <ul>
+          <li><strong>Fence per frame-in-flight</strong> (three) — the leash; before the CPU reuses slot one's notebook and memory it waits on slot one's fence.</li>
+          <li><strong>"Image available" semaphore per frame</strong> (three) — the swapchain signals it when the next image is actually ready; the GPU waits before drawing.</li>
+          <li><strong>"Render finished" semaphore per swapchain <em>image</em></strong>, not per frame — present can outlive a frame slot; the same image can come back around before you've cycled three slots. Tie it to the image, not the frame, or you wait on a recycled semaphore. A classic Vulkan footgun: ask "what is the lifetime of the thing this guards?"</li>
+        </ul>
+        <p>The loop: wait this frame's fence, reset it, acquire an image (signals image-available), record the notebook, submit ("wait image-available before drawing, signal render-finished when done, trip this frame's fence"), present ("wait render-finished before showing"), advance slot.</p>
+
+        <h3>The macOS path has no semaphores at all</h3>
+        <p>On macOS the entire frame uses <em>zero</em> semaphores — a consequence of bypassing the normal present path. Through MoltenVK the normal "present this image" call had timing problems (frames out of order, flicker). So the code reaches <em>through</em> MoltenVK via an extension to grab Metal's own command queue, asks the display layer for its next drawable directly, wraps the Metal texture as a Vulkan image, renders, and tells Metal to present on that same queue. Both render and present go on the <em>same</em> Metal queue, and Metal guarantees in-queue order — so the present is automatically after the render, no semaphore needed. The per-frame fence stays (the CPU still needs to know when to reuse the notebook). The Mac recycles ~3 drawables, each bringing back the same texture pointer, so a little cache keyed by pointer builds three Vulkan wrappers and reuses them until a resize.</p>
+
+        <h3>The landmines (the best part)</h3>
+        <p>The "LANDMINE" comments are tombstones for days someone lost — the cheapest education in the repo. Greatest hits:</p>
+        <ul>
+          <li><strong>Color format</strong> — two screen formats look identical: UNORM and SRGB. Pick SRGB and the GPU "corrects" colors with a gamma curve, but the art is already in display space, so it double-applies and the whole game gets ~twice as bright. Fix: prefer UNORM. One line, invisible until you notice everything looks bleached.</li>
+          <li><strong>Teardown order</strong> — on AMD's open-source Linux driver, destroying a swapchain without first making the GPU finish makes the entire Java process silently exit — no crash, no stack trace. So "wait for GPU idle" calls are sprinkled before teardown. You own lifetimes now; "finish all GPU work before destroying what it used" is non-negotiable. OpenGL did this for you.</li>
+          <li><strong>Present mode on Mac</strong> — "mailbox" mode through MoltenVK occasionally presents drawables out of order, flashing the previous frame's color. So the code forces plain locked-to-refresh mode on Mac unless uncapped. "Works everywhere except this one translation layer" is the entire personality of macOS support.</li>
+          <li><strong>The honest one</strong> — a layer-flicker bug on Apple Silicon is still not fully nailed. Some landmines are fixes for cousins of it. Not pretending it's solved.</li>
+        </ul>
+
+        <h3>The abstraction earning its keep</h3>
+        <p>Best example: the <strong>bind group</strong> — a bundle of textures and samplers a shader uses. Some textures stream (rewritten every frame, like the interface image). If all three frames pointed at one texture, frame six rewrites it while frame four reads — the flicker race again. So one logical bind group actually allocates three real descriptor sets, one per frame slot, each pointing at that slot's copy. The rendering code just says "bind this bind group" and the layer hands over the right slot's version. The same "three slices" idea a third time — you've now seen it in the vertex buffer, the sync objects, and the bind groups. Spot that one pattern and three-quarters of the codebase stops being mysterious.</p>
+
+        <h3>Where to start reading tonight</h3>
+        <p>Open the renderer's per-frame function and find the fence wait near the top — the one commenting on the interface layer covering and uncovering. Read it slowly. It contains, in one paragraph, the frame ordering, the three-frames-in-flight race, the streaming-texture problem, and a real unsolved bug. The whole project compressed into one defensive <code>wait</code>. Pull every thread it mentions. The scary comments are where the knowledge lives; the clean code is just the part that already worked.</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this episode — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about the 20-byte vertex layout or reverse-Z, drill yourself on the landmines, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/54ea1a33-1636-47bb-bae7-5ed77bbb7293" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
+        </div>
+      </aside>
+    </article>
+
+    <!-- ───── TOPIC: THE HANDOVER ───── -->
+    <article class="topic" data-topic-page="plugin-handover">
+      <header class="topic-header">
+        <div class="meta-row">
+          <span>Plugin · 03</span>
+          <span>·</span>
+          <span>60 min listen</span>
+        </div>
+        <h1 class="topic-title">The Handover: A Guided Tour of the Source</h1>
+        <p class="topic-subtitle">Real class names, real methods, real fields, in the order the code runs. Not theory — a tour you follow with the files open. When DEV names a class, it exists; when DEV names a field, grep it.</p>
+        <div class="topic-actions">
+          <button class="btn-complete" data-complete="plugin-handover">
+            <span class="btn-check"></span>
+            <span class="btn-label">Mark as complete</span>
+          </button>
+        </div>
+      </header>
+
+      <p class="summary">Episodes one and two covered <em>what</em> and <em>the techniques</em>. This one is <em>our code, specifically</em> — the spine, the engine callbacks, the scene capture and draw, the platform floor, and the landmine index. Pause it, open the file being discussed. That's the point.</p>
+
+      <!-- Podcast -->
+      <section class="podcast">
+        <div class="podcast-art">🎧</div>
+        <div class="podcast-body">
+          <div class="eyebrow">Podcast · two voices · ~60 min</div>
+          <div class="podcast-title">The Handover</div>
+          <div class="podcast-desc">DEV hands the project off and walks the actual code — class by class, method by method, in run order. Where a line is load-bearing or cursed, we stop and say why.</div>
+          <audio controls preload="none" src="https://pub-3db8591f8ece4a6d8022378254f85aae.r2.dev/4.m4a"></audio>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section class="notes">
+        <h2>Notes</h2>
+
+        <h3>What owns what</h3>
+        <p>One package, <code>net.runelite.client.plugins.gpuvulkan</code>, ~80 files plus one Objective-C file under <code>src/main/native</code>. The spine is <code>GpuVulkanPlugin.java</code>: <code>class GpuVulkanPlugin extends Plugin implements DrawCallbacks, VulkanRenderBackend</code> — three hats. It's a RuneLite <code>Plugin</code> (startUp/shutDown), a <code>DrawCallbacks</code> (the engine calls it to draw the world), and a <code>VulkanRenderBackend</code> (other plugins register render extensions). Four fields decode the rest: <code>renderer</code> (a <code>VulkanRenderer</code>), <code>renderExtensions</code> (the things that draw), <code>disposables</code> (a LIFO close-stack — everything created is pushed and torn down in reverse), and two <code>static volatile</code> fields (<code>activeInstance</code>, <code>shuttingDown</code>) for the JVM shutdown hook.</p>
+
+        <h3>startUp, and why construction order is sacred</h3>
+        <p><code>startUp</code> does almost nothing synchronously: checks <code>isStockGpuEnabled()</code> (refuse if the stock OpenGL plugin is on — two owners of the rlawt context crash the JVM), registers the shutdown hook, sets <code>startRequested = true</code>, defers the real work to <code>clientThread.invoke</code> until logged in (attaching on the login screen leaves a blank canvas indistinguishable from a broken surface, especially on macOS). Then a specific order encoded in <code>Disposables</code>: <code>VulkanInstance</code> → <code>VulkanSurface</code> → <code>VulkanDevice</code>, then — <strong>LANDMINE</strong> — <code>FrameSync</code> is registered <em>before</em> <code>Swapchain</code>. Disposables is LIFO, so at teardown the swapchain destroys first (releasing the windowing system's references to the <code>renderFinished</code> semaphores) and only then the semaphores. The other way, AMD's RADV hangs in <code>vkDestroySemaphore</code>; <code>vkDeviceWaitIdle</code> does not drain the presentation engine.</p>
+        <p>Then MSAA sample count (macOS forces samples=1 — MSAA on the custom-present path is disabled while a MoltenVK submit crash is isolated), <code>DepthBuffer</code>, optional <code>MsaaColorBuffer</code>, <code>RenderPass</code>, <code>Gfx.wrap</code>, <code>TextureArray</code>, <code>RegionManager</code>, <code>RenderExtensions</code> (immediately <code>register(new BaseRenderer())</code>), <code>Framebuffers</code>, <code>VulkanRenderer</code>. Last steps in order: <code>activeInstance = this</code> <em>after</em> full init (so the shutdown hook never sees a half-built plugin), then <code>client.setDrawCallbacks(this)</code> (the switch that starts the engine calling us). The giant <code>catch (RuntimeException)</code> must unwind everything in the same order <code>shutDown</code> would, or the canvas is left with <code>ignoreRepaint=true</code> and a half-attached context — which presents as "the plugin won't turn back on."</p>
+
+        <h3>The DrawCallbacks contract — how the engine feeds us</h3>
+        <p>The engine's calling pattern in this client version is <em>not</em> what the interface docs imply:</p>
+        <ul>
+          <li><code>preSceneDraw</code> fires first each frame — stash camera floats into <code>lastCamX</code> etc. (build the projection from <em>these</em>, not the doubles from <code>drawScene</code>); detect scene transitions by <code>scene != capturedScene</code> by reference (the <code>swapScene</code>/<code>loadScene</code> callbacks don't fire in this version) → <code>captureSceneNow</code>; set <code>scene.setDrawDistance</code> so clickboxes register; forward <code>hideRoofIds</code>.</li>
+          <li><code>drawScene</code> kicks off per-frame capture: <code>beginFrame()</code>, <code>rebuildDirtyZones</code>, <code>captureDynamicPending()</code>. Does <em>not</em> use the camera doubles it's passed.</li>
+          <li>Three model entry points funnel into <code>captureModel(...)</code>: <code>drawDynamic</code>, <code>drawTemp</code>, and <code>draw(Projection, …)</code> — the last has the most honest comment in the codebase: projectiles, spell animations, and home-teleport stop rendering without that method body <em>even though the counter says it never runs</em>. Issue #1. Leave it.</li>
+          <li><code>draw(int overlayColor)</code> is the heartbeat — the engine saying "now paint it." Validates canvas, handles resize, grabs UI pixels, calls <code>renderer.drawFrame(...)</code> with the whole pile of state (tick masked <code>&amp; 127</code> to stop float drift). That one call is the entire frame.</li>
+        </ul>
+
+        <h3>The extension fan-out</h3>
+        <p><code>RenderExtensions</code> is a <code>List&lt;VulkanRenderExtension&gt;</code> with crash isolation — <code>forEachExtension</code> wraps each callback in try/catch and a throwing extension is removed and closed while the rest keep running. Registered by default: <code>BaseRenderer</code>, a thin dispatcher to a scene renderer and an interface renderer, gated by benchmark flags. Below it: <code>VulkanSceneRenderer</code> → <code>DefaultVulkanSceneRenderer</code> (near pass-through) → <code>SceneRenderer</code>. The routing that matters: <code>captureModel</code> overloads carrying a <code>Projection</code> go to <code>captureModelSorted</code>; the bare one goes unsorted. Third-party plugins use <code>VulkanExtensionQueue</code> — register before the backend is live, <code>attachQueued</code> wires them once <code>renderExtensions</code> exists.</p>
+
+        <h3>SceneRenderer part one — the buffer and static capture</h3>
+        <p>The biggest file and the heart — implements three sink interfaces because it owns the vertex memory. Constants: <code>MAX_STATIC_VERTICES = 5,000,000</code>, <code>MAX_FRAME_VERTICES = 3,000,000</code>, <code>TOTAL_BUFFER_BYTES = STATIC + FRAME × FRAMES_IN_FLIGHT</code>. One host-visible buffer: a 5M-vertex static arena at the front, then three 3M-vertex frame arenas. Each vertex is <code>VERTEX_STRIDE</code> = 20 bytes. The cursor is three fields (<code>writePtr</code>, <code>writeBasePtr</code>, <code>writeBaseVertex</code>); <code>useStaticWriteArena()</code> and <code>useFrameWriteArena(slot, …)</code> flip between arenas; everything writes via <code>SceneVertexPacker.writePacked</code> and advances 20.</p>
+        <p>The world grid: <code>ZONE_SIZE = 8</code>, <code>ZONES_PER_SIDE = 13</code>, <code>ZONE_COUNT = 169</code>. Bookkeeping arrays <code>zoneVertexStart[layer][plane][zone]</code> / <code>zoneVertexCount</code> record which slice of the static arena holds each zone's geometry — the entire culling and roof-hiding mechanism. <code>captureScene</code> runs on a region change: first line <code>vkDeviceWaitIdle</code> (drain the GPU before rewriting the shared buffer), zero the bookkeeping, <code>useStaticWriteArena()</code>, emit five layers in fixed order (TERRAIN, WALLS, DECORATIVE, GROUND, GAME_OBJECTS — DYNAMIC is never static). Layer-major, plane-minor, so roof-hiding clips per plane. <code>SceneRoofInfo.forTile</code> returns a <code>visbelow</code> flag and <code>roofId</code>; level 0 holds its own geometry plus upper levels' "visible below," mirroring stock's SceneUploader. <code>roofOffset</code> = (EXTENDED 184 − SCENE 104)/2 on top-level, 0 on instances — threaded as a parameter so it's impossible to forget.</p>
+
+        <h3>SceneRenderer part two — models, tiles, dirty zones, dynamic suffix</h3>
+        <ul>
+          <li><strong>Models</strong> via <code>SceneModelEmitter</code>. <code>captureModelSorted</code> decides the path: consult <code>ModelFaceCache</code> for transparent-face count; if <code>RENDERMODE_SORTED_NO_DEPTH</code> force a sort; if opaque and under <code>OPAQUE_UNSORTED_FACE_THRESHOLD</code> (64) go unsorted; if transparent try the cull-only fused path; else fall back to <code>ModelSorter</code> — the bucket sort from episode two, ported from stock's <code>FacePrioritySorter</code>, near-plane-rejecting at z=50.</li>
+          <li><strong>Priority faces</strong> recorded in <code>PriorityRangeSet</code>; <code>recordDraw</code> later draws those ranges through color then depth pipelines.</li>
+          <li><strong>Tiles</strong> via <code>SceneTileEmitter</code> — <code>captureTilePaint</code> builds a 128-unit quad, six <code>writeHslVert</code> calls, texture layer = <code>paint.getTexture() + 1</code> (layer 0 is white reserve). Shader does HSL→RGB.</li>
+          <li><strong>beginFrame</strong> holds the safety wait — <code>vkWaitForFences</code> on this slot's fence <em>before</em> touching the arena, or the CPU writes while the GPU reads three frames ago (torn-vertex flicker, worse on macOS). Resets <code>vertexCount</code> to <code>overlayNextVertex[slot]</code>.</li>
+          <li><strong>Dirty zones</strong> — <code>DirtyZoneTracker</code> keeps a per-zone bitmask of which of the three slots have been rebuilt; a zone is clean only when all slots are done, because each slot is a separate copy.</li>
+          <li><strong>PendingRenderables</strong> — a retry queue for models whose data hasn't streamed in yet; <code>captureDynamicPending</code> retries each frame.</li>
+          <li><strong>drawPass(PASS_OPAQUE)</strong> records <code>dynamicOpaqueEnd</code> so opaque dynamic geometry draws in the main pass, the rest in the alpha pass.</li>
+        </ul>
+
+        <h3>VulkanRenderer.drawFrame — the frame start to finish</h3>
+        <p>Stashes incoming state (the matrix is built later at record time). First real action inside the <code>MemoryStack</code> push is a fence wait — <em>the</em> comment to read: wait this slot's in-flight fence <em>before</em> writing the UI staging buffer, because the memcpy in <code>uploadUiPixels</code> can race the GPU's copy from three frames ago, producing a half-old/half-new UI texture that reads as "the UI layer intermittently covering and uncovering" — the layer-flicker family. Then branch: <code>drawFrameCustomPresent</code> (macOS) or <code>drawFrameSwapchain</code> (else), then <code>sync.advance()</code>.</p>
+        <p><strong>Swapchain path:</strong> <code>vkAcquireNextImageKHR</code> with <code>imageAvailable</code>; on OUT_OF_DATE/SUBOPTIMAL mark stale; reset the fence; record via <code>recordClearPass</code>; <code>submit</code> (waits <code>imageAvailable</code> at COLOR_ATTACHMENT_OUTPUT, signals <code>renderFinishedFor(imageIdx)</code> — per <em>image</em>, trips the fence); <code>present</code>. <code>recordClearPass</code>: <code>recordBeforeRenderPass</code> (UI uploads and layout transitions <em>outside</em> the render pass — <code>vkCmdCopyBufferToImage</code> is illegal inside), color cleared to skybox, depth cleared to <code>0.0</code> (reverse-Z). Two viewport landmines: DPI stretch from <em>canvas</em> dims not viewport dims (else clicks land in shifting spots), and the Y-flip baked into the matrix as <code>scale(scale, -scale, 1)</code> (the <code>KHR_maintenance1</code> negative-height viewport was silently ignored at runtime).</p>
+        <p><strong>macOS custom-present path:</strong> <code>MacOSMetalHelper.nextDrawable()</code> returns drawable/MTLTexture pointers and size; on size change <code>vkDeviceWaitIdle</code>, flush the <code>MetalDrawableSet</code> cache, recreate depth/MSAA; <code>metalDrawables.acquire</code> imports the <code>MTLTexture</code> as a <code>VkImage</code> via <code>VkImportMetalTextureInfoEXT</code>, cached by texture pointer; record the clear pass; <code>submitNoSemaphores</code> (no wait/signal — present on the same Metal queue, in-queue order sequences for free); wait the fence; <code>presentDrawable</code> on the queue pulled once at device creation via <code>vkExportMetalObjectsEXT</code>.</p>
+
+        <h3>SceneRenderer.recordDraw — how draws get issued</h3>
+        <p>The busiest method. Bail if <code>vertexCount == 0</code>. <strong>LANDMINE:</strong> bind the vertex buffer at byte offset <em>zero</em> and address the per-slot arena via <code>firstVertex</code>, never a byte offset — MoltenVK's offset translation produces no visible geometry at hundreds-of-MB offsets on Apple Silicon. Push constants: vertex push 96 bytes (mat4 MVP, then a vec4 of camera/draw-distance/fog, then an ivec4 tick); fragment push 32 bytes at offset 96 (fog+brightness, then a vec4 with the two-values-in-one-float trick: <code>singlePassAlpha ? 20 + smoothBanding : smoothBanding</code>, alpha pass uses <code>10 + smoothBanding</code>). <code>roofRanges.buildSkipPairs(hideRoofIds, …)</code> writes <code>[start, end)</code> skip pairs for hidden roofs. A visible-zone window culls by zone box unless the radius covers the whole scene.</p>
+        <p>A loop over six layers picks a pipeline (line if wireframe and supported, else fill), binds it and the descriptor set. DYNAMIC draws the dynamic range honoring priority skip-pairs; static layers draw plane-by-plane via <code>zoneDrawScheduler.drawStaticPlane</code>/<code>drawOverlayPlane</code>, applying roof skip-pairs only for planes <em>above</em> the current one (so a building you're inside doesn't lose its lower walls). <code>SceneZoneDrawScheduler</code> coalesces contiguous zone ranges, merges roof + overlay skips via <code>mergeSkipPairs</code>; <code>SceneDrawEmitter.drawRange</code> walks the sorted skip-pairs and issues a <code>vkCmdDraw</code> for each gap — roof-hiding as gaps in the draw list, no separate geometry. After the loop: priority ranges (color then depth pipeline), and unless single-pass alpha, an <code>alphaPipeline</code> pass. <code>repushConstantsEveryDraw</code> = <code>supportsMetalObjects()</code> — on Mac re-push every draw (MoltenVK push-constant reuse quirks).</p>
+
+        <h3>The Gfx layer and the UI</h3>
+        <p>The scene path uses raw Vulkan and <code>ScenePipeline</code> directly — it's hot and predates the abstraction. The <code>gfx</code> package (wgpu-style) is used by the UI and FSR; <code>Gfx.wrap</code> returns a <code>GfxRenderer</code> that doesn't own the objects it wraps. <code>InterfaceRenderer</code> owns a <code>GfxStreamingImage</code> (a ring of FRAMES_IN_FLIGHT textures + staging) and a <code>GfxBindGroup</code>: <code>uploadUiPixels</code> memcpys AWT pixels into the current slot's staging (optional dirty-row path via <code>Arrays.mismatch</code>); <code>recordBeforeRenderPass</code> does the copy and transitions; in-pass it draws a fullscreen triangle (no vertex buffer — <code>gl_VertexIndex</code> makes the corners), and <code>ui.frag</code> mixes in <code>overlayColor</code> (login fade, hit-splat flash). A single logical <code>GfxBindGroup</code> allocates FRAMES_IN_FLIGHT descriptor sets so the GPU never samples the slot the CPU is writing — triple-buffering real but invisible.</p>
+
+        <h3>The platform floor</h3>
+        <ul>
+          <li><strong>VulkanInstance</strong> — filters requested extensions against available (on macOS <code>VK_KHR_portability_enumeration</code> may not be advertised); wires a validation debug messenger to slf4j; sets the <code>ENUMERATE_PORTABILITY</code> flag or <code>vkCreateInstance</code> returns <code>ERROR_INCOMPATIBLE_DRIVER</code> on Mac.</li>
+          <li><strong>VulkanDevice</strong> — picks the first device with a single graphics+present queue; reads feature flags; enables <code>VK_KHR_swapchain</code> always, <code>VK_KHR_portability_subset</code> if advertised (mandatory on MoltenVK), <code>VK_EXT_metal_objects</code> if present. <code>extractMetalCommandQueue()</code> via <code>vkExportMetalObjectsEXT</code> pulls the <code>id&lt;MTLCommandQueue&gt;</code>. <code>supportsMetalObjects()</code> is the single flag that flips the renderer onto the macOS custom-present path.</li>
+          <li><strong>PlatformSurface.current</strong> — <code>X11PlatformSurface</code> (Xlib surface, exposes <code>currentDrawable</code> so the plugin recreates on X11 drawable swaps), <code>Win32PlatformSurface</code> (HWND — implemented, never tested, issue #4), <code>MacOSPlatformSurface</code> (<code>attachMetalLayer</code>, then <code>memPutAddress</code> to write the layer pointer manually because LWJGL 3.3.6's <code>pLayer</code> binding has a bug).</li>
+          <li><strong>rlmtl.m</strong> → <code>librlmtl.dylib</code>, <code>System.load</code>ed by <code>MacOSMetalHelper</code>. Creates a <code>CAMetalLayer</code> (BGRA8Unorm, drawableSize 1×1 initially to avoid colliding with MoltenVK's internal swapchain) on the main thread, spins a <code>CADisplayLink</code> to sync <code>drawableSize</code> and flush <code>CATransaction</code>. <code>nNextDrawable</code>/<code>nPresentDrawable</code> wrapped in <code>@autoreleasepool</code> — mandatory, or MoltenVK crashes around frame fifty.</li>
+          <li><strong>ClientRuntimeConfig</strong> — applies engine settings on enable (GPU flags, expanded map, unlocked FPS) and restores on disable.</li>
+        </ul>
+
+        <h3>Render pass, attachments, textures, FSR</h3>
+        <p><code>RenderPass(device, colorFormat, samples, swapchainPresent)</code> — with MSAA three attachments (multisampled color, multisampled depth with reverse-Z so compare is GREATER and clear is 0, and a resolve target); the <code>swapchainPresent</code> boolean sets the color final layout (<code>PRESENT_SRC_KHR</code> normally, <code>COLOR_ATTACHMENT_OPTIMAL</code> for macOS custom present). Attachment order in <code>Framebuffers</code> must match exactly. <code>TextureArray</code> — a 2D array, 128×128, 8 mips, layer 0 solid white; the landmine is the sampler magFilter = <strong>NEAREST</strong> not LINEAR (OSRS encodes alpha as rgb==0 and the shader discards below 0.5; LINEAR would blend transparent texels into neighbors and break wall transparency). minFilter is LINEAR. Builds the animation UBO (256 std140 vec4, per-tick UV scroll for water/lava). <code>FsrUpscaler</code> — only when upscaling is FSR1 and renderScale &lt; 100: EASU then RCAS fullscreen-triangle passes on the gfx abstraction.</p>
+
+        <h3>The landmine index, and the open wounds</h3>
+        <p>Grep <code>LANDMINE</code>. By blast radius: (1) register <code>FrameSync</code> before <code>Swapchain</code> or RADV hangs on teardown; (2) <code>pickFormat</code> must prefer <code>B8G8R8A8_UNORM</code> not SRGB or the game doubles in brightness; (3) double <code>vkDeviceWaitIdle</code> around swapchain destroy (RADV silent exit + MoltenVK artifacts); (4) bind vertex buffer at offset zero, shift with <code>firstVertex</code>, or MoltenVK renders nothing; (5) scene viewport DPI from canvas dims not viewport dims or clicks land wrong; (6) texture sampler mag filter NEAREST or wall transparency breaks; (7) every <code>rlmtl.m</code> native entry needs <code>@autoreleasepool</code> or MoltenVK crashes around frame fifty. Open wounds: the macOS layer-flicker bug (read CLAUDE.md's running notes — many plausible fixes already ruled out), the <code>draw(Projection, …)</code> method that "never runs" but breaks projectiles (issue #1), and untested Windows surface code (issue #4).</p>
+
+        <h3>Build, run, and the house rules</h3>
+        <p>Needs JDK 21 Temurin and <code>glslangValidator</code> on PATH (Gradle compiles shaders to SPIR-V). <code>./gradlew build</code>. Run via <code>GpuVulkanPluginTest#main</code>, <code>./gradlew run</code>, or <code>./gradlew shadowJar</code> for a ~41MB standalone jar (bundles a RuneLite client plus LWJGL natives including MoltenVK) — run with <code>-ea</code>. The rules are scar tissue: a failed fix is data (if a change doesn't fix the symptom, your causal model is wrong — pick a different hypothesis family, don't stack plausible Vulkan fixes); don't diagnose by adding logging and pasting output — derive from the code or use validation and RenderDoc; silent validation under the failure means the bug is <em>not</em> in Vulkan API usage (look in MoltenVK translation, AWT, present timing, or shader semantics); correlated symptoms share a cause; structural changes need buy-in; no upstream-incompatible hacks. Commits use conventional-commit style with an <code>Assisted-by:</code> trailer where an assistant materially shaped the code — never <code>Co-Authored-By:</code>.</p>
+        <p><strong>The sentence taped to the monitor:</strong> "Follow the data from <code>draw</code>, read the scary comments first, and when a fix doesn't work, change your model instead of changing a different line."</p>
+      </section>
+
+      <!-- NotebookLM CTA -->
+      <aside class="notebook-cta">
+        <div class="notebook-cta-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="notebook-cta-body">
+          <div class="eyebrow">Keep going</div>
+          <div class="notebook-cta-title">Ask questions, do the quiz, or get cards in NotebookLM</div>
+          <p class="notebook-cta-desc">The full notebook for this handover — sources, chat, generated quiz, and flashcards — lives in NotebookLM. Open it, ask follow-ups about the disposables ordering or the macOS custom-present path, drill yourself on the landmine index, or export a deck.</p>
+          <a class="notebook-cta-link" href="https://notebooklm.google.com/notebook/b65fdfef-719f-4aa2-b290-57371c0c2a10" target="_blank" rel="noreferrer">Open in NotebookLM ↗</a>
         </div>
       </aside>
     </article>
